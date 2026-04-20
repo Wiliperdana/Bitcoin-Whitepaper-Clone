@@ -60,13 +60,19 @@ def start_rpc(node: Node, miner: Miner, wallet: Wallet, rpc_port: int):
                         resp["result"] = summary
 
                     elif cmd == "balance":
+                        mempool_spent = set()
+                        for mtx in node.mempool.values():
+                            for inp in mtx.inputs:
+                                mempool_spent.add((inp.prev_tx, inp.prev_out_index))
+                        
                         bal = 0
                         utxos = []
                         for tid, outs in node.blockchain.utxo_set.items():
                             for idx, out in outs.items():
                                 if out.address == wallet.get_address():
-                                    bal += out.amount
-                                    utxos.append({"txid": tid, "index": idx, "amount": out.amount})
+                                    if (tid, idx) not in mempool_spent:
+                                        bal += out.amount
+                                        utxos.append({"txid": tid, "index": idx, "amount": out.amount})
                         resp["result"] = {"balance": bal, "utxos_count": len(utxos)}
                     elif cmd == "send":
                         to_addr = req["params"]["to"]
