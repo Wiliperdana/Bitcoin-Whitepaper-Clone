@@ -1,12 +1,15 @@
 import time
 import copy
+import os
+import json
+import sqlite3
 from typing import List, Dict, Optional, Tuple
 from core.block import Block, BlockHeader
 from core.transaction import Transaction, TxOut
 
 # Difficulty constants
 # 20 bits of difficulty is appropriate for Python fast testing
-INITIAL_TARGET = 2**(256 - 18) 
+INITIAL_TARGET = 2**(256 - 26)
 RETARGET_INTERVAL = 2016
 TARGET_BLOCK_TIME = 10 * 60 # 10 minutes
 
@@ -18,10 +21,72 @@ class BlockNode:
         self.total_work = total_work
 
 class Blockchain:
-    def __init__(self):
+    def __init__(self, db_path: str = None, initial_target: int = None):
         self.nodes: Dict[str, BlockNode] = {} # Map block hash -> BlockNode
         self.tip: Optional[BlockNode] = None
         self.utxo_set: Dict[str, Dict[int, TxOut]] = {}
+        self.initial_target = initial_target if initial_target is not None else INITIAL_TARGET
+        self.db_path = db_path
+        self.conn = None
+        self.cursor = None
+        
+        if self.db_path:
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.cursor = self.conn.cursor()
+            self.cursor.execute("CREATE TABLE IF NOT EXISTS blocks (id INTEGER PRIMARY KEY AUTOINCREMENT, block_json TEXT)")
+            self.cursor.execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT)")
+            self.conn.commit()
+            
+            # Check if genesis is saved
+            self.cursor.execute("SELECT value FROM metadata WHERE key=?", ("TIP",))
+            if self.cursor.fetchone():
+                self._load_from_disk()
+            else:
+                self._load_genesis()
+        else:
+            self._load_genesis()
+
+    def _save_block_to_disk(self, block: Block):
+        if self.conn:
+            self.cursor.execute("INSERT INTO blocks (block_json) VALUES (?)", (json.dumps(block.to_dict()),))
+            self.cursor.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)", ("TIP", self.tip.block.header.hash()))
+            self.conn.commit()
+
+    def _load_from_disk(self):
+        print(f"Loading blockchain from {self.db_path}...")
+        self.cursor.execute("SELECT block_json FROM blocks ORDER BY id ASC")
+        rows = self.cursor.fetchall()
+        for row in rows:
+            b = Block.from_dict(json.loads(row[0]))
+            
+            if not self.tip and b.header.prev_block == "0"*64:
+                genesis_node = BlockNode(b, None, 0, (2**256) // (b.header.target + 1))
+                self.nodes[b.header.hash()] = genesis_node
+                self.tip = genesis_node
+                self.rebuild_utxo(genesis_node)
+            else:
+                self.add_block(b, save_to_disk=False) 
+
+    def _load_genesis(self):
+        # Deterministic dummy Genesis Block (Hardcoded to avoid multiple universes)
+        from core.transaction import create_coinbase_transaction
+        cb = create_coinbase_transaction("0000000000000000000000000000000000000000", 0, 0)
+        
+        # Lock genesis target to a low difficulty so it's always instant to compute
+        # on startup, even if the user changed their global network difficulty.
+        genesis_target = 2**(256 - 8)
+        header = BlockHeader(1, "0"*64, cb.calculate_hash(), 1231006505, genesis_target, 0)
+        b = Block(header, [cb])
+        
+        # Instantly find PoW on startup (takes 0.001s for 8 bit difficulty)
+        while not b.check_pow():
+            b.header.nonce += 1
+            
+        genesis_node = BlockNode(b, None, 0, (2**256) // (INITIAL_TARGET + 1))
+        self.nodes[b.header.hash()] = genesis_node
+        self.tip = genesis_node
+        self.rebuild_utxo(genesis_node)
+        self._save_block_to_disk(b)
 
     def get_utxo(self, txid: str, index: int) -> Optional[TxOut]:
         return self.utxo_set.get(txid, {}).get(index)
@@ -123,7 +188,11 @@ class Blockchain:
 
     def calculate_next_target(self, prev_node: Optional[BlockNode]) -> int:
         if not prev_node:
-            return INITIAL_TARGET
+            return self.initial_target
+            
+        # If we are in the first epoch, force initial_target (ignoring Genesis easy target)
+        if prev_node.height < RETARGET_INTERVAL - 1:
+            return self.initial_target
             
         # We only retarget every RETARGET_INTERVAL blocks
         if (prev_node.height + 1) % RETARGET_INTERVAL != 0:
@@ -150,7 +219,7 @@ class Blockchain:
         new_target = (prev_node.block.header.target * actual_timespan) // target_timespan
         return new_target
 
-    def add_block(self, block: Block) -> bool:
+    def add_block(self, block: Block, save_to_disk: bool = True) -> bool:
         block_hash = block.header.hash()
         if block_hash in self.nodes:
             return True # Already have it
@@ -182,9 +251,11 @@ class Blockchain:
             self.rebuild_utxo(new_node)
             self.tip = new_node
             print(f"New tip! Height: {height}, Hash: {block_hash[:8]}...")
+            if save_to_disk: self._save_block_to_disk(block)
             return True
             
         print(f"Accepted branch block at height {height}")
+        if save_to_disk: self._save_block_to_disk(block)
         return True
 
     def get_main_chain(self) -> List[Block]:

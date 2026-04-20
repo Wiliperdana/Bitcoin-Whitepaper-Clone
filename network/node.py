@@ -29,9 +29,13 @@ class PeerConnection(threading.Thread):
                     self.node.handle_message(msg, self)
                 except Exception as e:
                     print(f"Error parsing message from {self.address}: {e}")
+        except ConnectionResetError:
+            pass  # Peer disconnected, handled in finally
         except Exception as e:
-            print(f"Connection error with {self.address}: {e}")
+            if self.running:
+                print(f"[Network] Peer {self.address[0]}:{self.address[1]} connection error: {e}")
         finally:
+            print(f"[Network] Peer {self.address[0]}:{self.address[1]} disconnected.")
             self.node.disconnect(self)
 
     def send(self, msg: Message):
@@ -49,14 +53,17 @@ class Node:
         self.server.bind((host, port))
         
         self.peers: Set[PeerConnection] = set()
-        self.blockchain = Blockchain()
+        self.blockchain = Blockchain(db_path=f"chainstate_{port}.sqlite")
         self.mempool: Dict[str, Transaction] = {}
         
         # Track what we've broadcasted to prevent loops
         self.known_txs = set()
         self.known_blocks = set()
         
-        self.lock = threading.Lock()
+        # Track known peer addresses for gossiping (set of "host:port" strings)
+        self.known_addresses: Set[str] = set()
+        
+        self.lock = threading.RLock()
         self.running = False
         
         # Events for the miner to hook into
@@ -88,12 +95,25 @@ class Node:
                 pass
 
     def connect(self, host: str, port: int):
+        addr_key = f"{host}:{port}"
+        # Don't connect to ourselves
+        if port == self.port:
+            return
+        # Don't duplicate connections
+        with self.lock:
+            if addr_key in self.known_addresses:
+                # Check if we already have an active connection to this address
+                for p in self.peers:
+                    if p.address == (host, port):
+                        return
+        
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.connect((host, port))
             peer = PeerConnection(self, sock, (host, port))
             with self.lock:
                 self.peers.add(peer)
+                self.known_addresses.add(addr_key)
             peer.start()
             self._send_version(peer)
         except Exception as e:
@@ -117,17 +137,28 @@ class Node:
 
     def _send_version(self, peer: PeerConnection):
         height = self.blockchain.tip.height if self.blockchain.tip else 0
-        peer.send(Message(CMD_VERSION, {"version": 1, "height": height}))
+        peer.send(Message(CMD_VERSION, {"version": 1, "height": height, "listen_port": self.port}))
 
     def handle_message(self, msg: Message, sender: PeerConnection):
         if msg.command == CMD_VERSION:
+            # Record the peer's listen port so we can share it with others
+            listen_port = msg.payload.get("listen_port")
+            if listen_port:
+                peer_host = sender.address[0]
+                addr_key = f"{peer_host}:{listen_port}"
+                with self.lock:
+                    self.known_addresses.add(addr_key)
+            
             if not self.blockchain.tip:
                 sender.send(Message(CMD_GETHEADERS, {"hash": "0"*64}))
             else:
                 sender.send(Message(CMD_VERACK, {}))
                 if msg.payload.get("height", 0) > self.blockchain.tip.height:
-                    # We are behind, ask for blocks
-                    sender.send(Message(CMD_GETDATA, {"type": "block", "hash": self.blockchain.tip.block.header.hash()}))
+                    # We are behind, ask for blocks from genesis so we catch up sequentially 
+                    sender.send(Message(CMD_GETDATA, {"type": "block", "hash": "0"*64}))
+            
+            # Ask the peer for its known addresses
+            sender.send(Message(CMD_GETADDR, {}))
 
         elif msg.command == CMD_INV:
             for item in msg.payload.get("inventory", []):
@@ -181,10 +212,21 @@ class Node:
             with self.lock:
                 success = self.blockchain.add_block(block)
                 if success:
-                    # Clean up mempool
+                    # Clean up mempool: remove included transactions
                     for tx in block.transactions:
                         if tx.id in self.mempool:
                             del self.mempool[tx.id]
+                    
+                    # Purge stale mempool txs that reference now-spent UTXOs
+                    stale_txids = []
+                    for txid, mtx in self.mempool.items():
+                        for inp in mtx.inputs:
+                            if not self.blockchain.get_utxo(inp.prev_tx, inp.prev_out_index):
+                                stale_txids.append(txid)
+                                break
+                    for txid in stale_txids:
+                        del self.mempool[txid]
+                        print(f"[Node {self.port}] Purged stale mempool tx: {txid[:8]}...")
                             
                     # Inform miner to restart
                     if self.on_new_block_func:
@@ -204,3 +246,26 @@ class Node:
             chain = self.blockchain.get_main_chain()
             headers = [b.header.to_dict() for b in chain]
             sender.send(Message(CMD_HEADERS, {"headers": headers}))
+
+        elif msg.command == CMD_GETADDR:
+            # Respond with all known peer addresses
+            with self.lock:
+                addresses = list(self.known_addresses)
+            sender.send(Message(CMD_ADDR, {"addresses": addresses}))
+
+        elif msg.command == CMD_ADDR:
+            # Received a list of peer addresses — try connecting to new ones
+            addresses = msg.payload.get("addresses", [])
+            for addr_str in addresses:
+                try:
+                    host, port_str = addr_str.rsplit(":", 1)
+                    port = int(port_str)
+                    if port == self.port:
+                        continue  # Skip ourselves
+                    with self.lock:
+                        already_known = addr_str in self.known_addresses
+                    if not already_known:
+                        print(f"[Node {self.port}] Discovered new peer: {addr_str}")
+                        threading.Thread(target=self.connect, args=(host, port), daemon=True).start()
+                except Exception:
+                    pass

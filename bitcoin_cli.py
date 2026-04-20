@@ -25,7 +25,7 @@ def send_rpc(port: int, method: str, params: dict = None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Bitcoin Clone CLI interface.")
-    parser.add_argument('method', choices=['getinfo', 'balance', 'send'], help="RPC method to call")
+    parser.add_argument('method', choices=['getinfo', 'balance', 'send', 'mempool'], help="RPC method to call")
     parser.add_argument('--port', type=int, default=8333, help="Node P2P port (RPC relies on port+1000)")
     parser.add_argument('--to', type=str, help="Destination address (for send)")
     parser.add_argument('--amount', type=int, help="Amount to send in arbitrary units")

@@ -90,7 +90,7 @@ class Miner(threading.Thread):
                 block.header.nonce += 1
                 
                 # Periodically yield back to update timestamp
-                if block.header.nonce % 10000 == 0:
+                if block.header.nonce % 1000 == 0:
                     block.header.timestamp = int(time.time())
 
             if self.interrupt:

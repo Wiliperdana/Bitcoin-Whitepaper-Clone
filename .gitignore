@@ -1,8 +1,10 @@
 __pycache__/
+.pytest_cache/
 *.pyc
 *.pyo
 *.pyd
 .Python
 env/
-venv/
-*.txt
+.venv/
+wallet_*.txt
+*.sqlite

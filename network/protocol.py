@@ -27,3 +27,5 @@ CMD_BLOCK = "block"
 CMD_GETHEADERS = "getheaders"
 CMD_HEADERS = "headers"
 CMD_ALERT = "alert"        # For SPV clients (from whitepaper section 8)
+CMD_GETADDR = "getaddr"    # Request known peer addresses
+CMD_ADDR = "addr"          # Share known peer addresses

@@ -114,7 +114,7 @@ class Transaction:
         output_sum = sum(tx_out.amount for tx_out in self.outputs)
         return input_sum - output_sum
 
-def create_coinbase_transaction(miner_address: str, block_height: int, block_reward: int = 5000000000) -> Transaction:
+def create_coinbase_transaction(miner_address: str, block_height: int, block_reward: int = 5_000_000_000) -> Transaction:
     """
     Creates a coinbase transaction. Halving isn't explicitly requested per exact height in instructions 
     but 50 BTC (in Satoshis) is standard. We embed height as pubkey to ensure distinct IDs.

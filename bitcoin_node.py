@@ -12,6 +12,7 @@ from core.transaction import Transaction
 def start_rpc(node: Node, miner: Miner, wallet: Wallet, rpc_port: int):
     """A simplistic RPC server allowing bitcoin_cli.py to trigger node actions locally."""
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(("127.0.0.1", rpc_port))
     server.listen(1)
     
@@ -32,6 +33,32 @@ def start_rpc(node: Node, miner: Miner, wallet: Wallet, rpc_port: int):
                             "peers": len(node.peers),
                             "mempool": len(node.mempool)
                         }
+                    elif cmd == "mempool":
+                        resp["result"] = [tx.to_dict(include_signatures=False) for tx in node.mempool.values()]
+                    elif cmd == "getblock":
+                        height_str = req.get("params", {}).get("height")
+                        try:
+                            height = int(height_str)
+                            chain = node.blockchain.get_main_chain()
+                            if 0 <= height < len(chain):
+                                resp["result"] = chain[height].to_dict()
+                            else:
+                                resp["error"] = f"Block not found at height {height}"
+                        except:
+                            resp["error"] = "Invalid height parameter"
+                            
+                    elif cmd == "getchain_summary":
+                        chain = node.blockchain.get_main_chain()
+                        summary = []
+                        for i, b in enumerate(chain):
+                            summary.append({
+                                "height": i,
+                                "hash": b.header.hash(),
+                                "timestamp": b.header.timestamp,
+                                "tx_count": len(b.transactions)
+                            })
+                        resp["result"] = summary
+
                     elif cmd == "balance":
                         bal = 0
                         utxos = []
@@ -45,11 +72,18 @@ def start_rpc(node: Node, miner: Miner, wallet: Wallet, rpc_port: int):
                         to_addr = req["params"]["to"]
                         amt = req["params"]["amount"]
                         
+                        # Collect UTXOs already being spent by mempool transactions
+                        mempool_spent = set()
+                        for mtx in node.mempool.values():
+                            for inp in mtx.inputs:
+                                mempool_spent.add((inp.prev_tx, inp.prev_out_index))
+                        
                         utxos = []
                         for tid, outs in node.blockchain.utxo_set.items():
                             for idx, out in outs.items():
                                 if out.address == wallet.get_address():
-                                    utxos.append({"txid": tid, "index": idx, "amount": out.amount})
+                                    if (tid, idx) not in mempool_spent:
+                                        utxos.append({"txid": tid, "index": idx, "amount": out.amount})
                         try:
                             # 10 is an arbitrary fee
                             tx = wallet.create_transaction(to_addr, amt, 10, utxos)
