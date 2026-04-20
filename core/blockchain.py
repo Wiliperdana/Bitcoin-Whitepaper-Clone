@@ -9,7 +9,7 @@ from core.transaction import Transaction, TxOut
 
 # Difficulty constants
 # 20 bits of difficulty is appropriate for Python fast testing
-INITIAL_TARGET = 2**(256 - 22)
+INITIAL_TARGET = 2**(256 - 24)
 RETARGET_INTERVAL = 2016
 TARGET_BLOCK_TIME = 10 * 60 # 10 minutes
 
@@ -216,7 +216,7 @@ class Blockchain:
         if actual_timespan > target_timespan * 4:
             actual_timespan = target_timespan * 4
             
-        new_target = (prev_node.block.header.target * actual_timespan) // target_timespan
+        new_target = (prev_node.block.header.target * target_timespan) // actual_timespan
         return new_target
 
     def add_block(self, block: Block, save_to_disk: bool = True) -> bool:
