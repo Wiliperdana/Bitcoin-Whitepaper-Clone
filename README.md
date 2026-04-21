@@ -100,7 +100,14 @@ python main.py simulate
 ```
 
 ## 6. Gambler's Ruin Calculator (Whitepaper Section 11)
-Calculates the risk of an attacker reversing history depending on how many blocks (`z`) have passed and their hashrate fraction (`q`).
+Calculates the risk of an attacker reversing history. This is a direct implementation of the "Gambler's Ruin" problem described in section 11 of the whitepaper. It models the race between an attacker and the honest network.
+
+The calculation uses the following variables:
+*   **`q`**: The attacker's fraction of the total network hashrate (e.g., `0.3` for 30%).
+*   **`p`**: The honest network's fraction of the hashrate (`p = 1 - q`).
+*   **`z`**: The number of confirmations, or blocks the honest chain is ahead. This is the number of blocks the attacker needs to "catch up" to.
+*   **`lambda`**: A calculated value representing the expected number of blocks the attacker will find in the time it takes the honest network to find `z` blocks. It's the mean of a Poisson distribution.
+*   **`k`**: An iterator variable representing the number of blocks the attacker actually finds (from 0 to `z`) in a given scenario during the calculation.
 
 ![Gambler's Ruin](assets/Gamblers-Ruin.png)
 
