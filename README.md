@@ -27,8 +27,6 @@ This implementation is built from the ground up in Python, relying on a minimal 
     *   **TCP-based Peer-to-Peer:** The nodes communicate over a simple TCP-based P2P network. The protocol is custom-designed to be simple and illustrative, with messages for handshake, block/transaction inventory, and data exchange.
 *   **Consensus:**
     *   **Nakamoto Consensus:** The network follows the longest-chain rule. When a node receives a new block, it verifies it and, if valid, adds it to its chain. If there's a fork, the longest chain is considered the valid one.
-*   **In-Memory Data:**
-    *   For simplicity, all blockchain data (blocks, transactions, UTXO set) is stored in memory. This means that restarting a a node will erase its state, and it will need to sync with other nodes to recover the blockchain history.
 
 ## Installation
 
@@ -49,7 +47,7 @@ Open a terminal and establish the first node in your network on port `10001`. We
 ```bash
 python main.py node --port 10001 --mine
 ```
-*Note: This node does not have a `--connect` flag because it is acting as the bootstrap node. If you ever stop and restart this node, it will forget its history (as all data is in-memory). To recover its history, it must pull it back from a living peer!*
+*Note: This node does not have a `--connect` flag because it is acting as the bootstrap node.*
 
 ### Step 2: Connect a Second Node (Terminal 2)
 Open a new terminal and start a second node on port `10002`. This time, we use the `--connect` flag to point it at the first node so they sync together.
@@ -85,9 +83,19 @@ python main.py client getinfo --port 10001
 python main.py client balance --port 10001
 ```
 
+**Check Public Key:**
+```bash
+python main.py client getaddress --port 10001
+```
+
 **Send test funds to another address:**
 ```bash
 python main.py client send --port 10001 --to <destination_address> --amount 50
+```
+
+**Check Mempool:**
+```bash
+python main.py client mempool --port 10001
 ```
 
 ---
