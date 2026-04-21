@@ -2,6 +2,7 @@ import argparse
 import subprocess
 import sys
 import os
+import multiprocessing
 
 def main():
     parser = argparse.ArgumentParser(
@@ -21,7 +22,7 @@ def main():
     
     # 3. Client Command
     parse_cli = subparsers.add_parser("client", help="Interact with a running node daemon via RPC")
-    parse_cli.add_argument("method", choices=["getinfo", "balance", "send", "mempool"], help="The RPC method to call")
+    parse_cli.add_argument("method", choices=["getinfo", "balance", "send", "mempool", "getaddress"], help="The RPC method to call")
     parse_cli.add_argument("--port", type=int, default=8333, help="Target Node P2P port (CLI automatically converts to RPC port)")
     parse_cli.add_argument("--to", type=str, help="Destination address (required for 'send')")
     parse_cli.add_argument("--amount", type=int, help="Amount to send (required for 'send')")
@@ -38,6 +39,11 @@ def main():
 
     # 6. Test Command
     parse_test = subparsers.add_parser("test", help="Run the core Pytest suite")
+
+    # 7. SPV Command
+    parse_spv = subparsers.add_parser("spv", help="Start a lightweight SPV client daemon")
+    parse_spv.add_argument("--port", type=int, default=8333, help="P2P port of the full node to connect to")
+    parse_spv.add_argument("--host", type=str, default="127.0.0.1", help="Host IP of the full node to connect to")
 
     args = parser.parse_args()
 
@@ -109,6 +115,19 @@ def main():
             print("[Master] Executing Pytest suite...")
             subprocess.run([sys.executable, "-m", "pytest", "tests/"], cwd=base_dir)
             
+        elif args.command == "spv":
+            from wallet.spv_client import SPVClient
+            import time
+            
+            print(f"[Master] Launching SPV Client, connecting to {args.host}:{args.port}...")
+            client = SPVClient()
+            client.connect(args.host, args.port)
+            
+            # Keep the client running to listen for messages from the full node
+            print("[Master] SPV client is running. Press Ctrl+C to stop.")
+            while True:
+                time.sleep(1)
+        
         else:
             parser.print_help()
             
@@ -116,4 +135,6 @@ def main():
         print("\n[Master] Master CLI terminated.")
 
 if __name__ == "__main__":
+    # Using spawn for macOS and Windows compatibility, especially for the simulation
+    multiprocessing.set_start_method('spawn', force=True)
     main()

@@ -20,12 +20,13 @@ class Message:
 # Constants for command types
 CMD_VERSION = "version"
 CMD_VERACK = "verack"
-CMD_INV = "inv"            # Broadcast knowledge of blocks/txs
-CMD_GETDATA = "getdata"    # Request specific blocks/txs
+CMD_INV = "inv"                     # Broadcast knowledge of blocks/txs
+CMD_GETDATA = "getdata"             # Request specific blocks/txs
 CMD_TX = "tx"
 CMD_BLOCK = "block"
 CMD_GETHEADERS = "getheaders"
 CMD_HEADERS = "headers"
-CMD_ALERT = "alert"        # For SPV clients (from whitepaper section 8)
-CMD_GETADDR = "getaddr"    # Request known peer addresses
-CMD_ADDR = "addr"          # Share known peer addresses
+CMD_ALERT = "alert"                 # For SPV clients (from whitepaper section 8)
+CMD_GETADDR = "getaddr"             # Request known peer addresses
+CMD_ADDR = "addr"                   # Share known peer addresses
+CMD_GETMEMPOOL = "getmempool"       # Request mempool

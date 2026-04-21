@@ -159,6 +159,8 @@ class Node:
             
             # Ask the peer for its known addresses
             sender.send(Message(CMD_GETADDR, {}))
+            # And for its mempool
+            sender.send(Message(CMD_GETMEMPOOL, {}))
 
         elif msg.command == CMD_INV:
             for item in msg.payload.get("inventory", []):
@@ -269,3 +271,8 @@ class Node:
                         threading.Thread(target=self.connect, args=(host, port), daemon=True).start()
                 except Exception:
                     pass
+        elif msg.command == CMD_GETMEMPOOL:
+            with self.lock:
+                inv = [{"type": "tx", "hash": txid} for txid in self.mempool.keys()]
+            if inv:
+                sender.send(Message(CMD_INV, {"inventory": inv}))

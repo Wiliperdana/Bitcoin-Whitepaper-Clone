@@ -26,52 +26,58 @@ class Miner(threading.Thread):
         
     def run(self):
         self.running = True
+        
+        # On first run, give a moment for the node to sync with peers' mempools.
+        # This prevents a new node from instantly mining an empty block before
+        # it has a chance to receive transactions from other nodes.
+        time.sleep(2)
+
         while self.running:
             self.interrupt = False
             
+            block = None
+            txs_to_mine = []
+            height = 0
+
             with self.node.lock:
                 tip = self.node.blockchain.tip
-                if not tip:
-                    print("Miner waiting for Genesis block...")
-                    time.sleep(1)
-                    continue
+                if tip:
+                    prev_hash = tip.block.header.hash()
+                    target_bits = self.node.blockchain.calculate_next_target(tip)
+                    height = tip.height + 1
                     
-                prev_hash = tip.block.header.hash()
-                target_bits = self.node.blockchain.calculate_next_target(tip)
-                height = tip.height + 1
-                
-                # Deep copy pending txs from mempool to avoid mutation during mining
-                # We limit to 10 for simplicity
-                txs_to_mine = list(self.node.mempool.values())[:10]
+                    # Deep copy pending txs from mempool to avoid mutation during mining
+                    # We limit to 10 for simplicity
+                    txs_to_mine = list(self.node.mempool.values())[:10]
             
-            # Coinbase tx must be first!
-            coinbase_tx = create_coinbase_transaction(self.miner_address, height)
-            transactions = [coinbase_tx] + txs_to_mine
+                    # Coinbase tx must be first!
+                    coinbase_tx = create_coinbase_transaction(self.miner_address, height)
+                    transactions = [coinbase_tx] + txs_to_mine
+                    
+                    block_header = BlockHeader(
+                        version=1,
+                        prev_block=prev_hash,
+                        merkle_root="0"*64, 
+                        timestamp=int(time.time()),
+                        target=target_bits,
+                        nonce=0
+                    )
+                    
+                    block = Block(header=block_header, transactions=transactions)
+                    block.header.merkle_root = block.calculate_merkle_root()
+                    
+                    print(f"[Miner] Working on block {height} with {len(txs_to_mine)} txs...")
             
-            block_header = BlockHeader(
-                version=1,
-                prev_block=prev_hash,
-                merkle_root="0"*64, 
-                timestamp=int(time.time()),
-                target=target_bits,
-                nonce=0
-            )
-            
-            block = Block(header=block_header, transactions=transactions)
-            block.header.merkle_root = block.calculate_merkle_root()
-            
-            print(f"[Miner] Working on block {height} with {len(txs_to_mine)} txs...")
+            if not block:
+                print("Miner waiting for Genesis block...")
+                time.sleep(1)
+                continue
             
             # Start Hashcash loop
             while self.running and not self.interrupt:
                 if block.check_pow():
                     block_hash = block.header.hash()
                     print(f"*** Local Miner found Block {height}: {block_hash[:8]}... ***")
-                    
-                    # Instead of injecting via blockchain directly, we send it through Node handle_message 
-                    # so loopback handles broadcast natively just like external incoming messages.
-                    # Send a mock message from a fake sender, or just use node logic.
-                    # Wait, calling add_block directly is safe because our Node lock handles it nicely.
                     
                     with self.node.lock:
                         success = self.node.blockchain.add_block(block)

@@ -103,9 +103,14 @@ def start_rpc(node: Node, miner: Miner, wallet: Wallet, rpc_port: int):
                             resp["result"] = {"txid": tx_hash, "msg": "Broadcasted successfully"}
                         except Exception as e:
                             resp["error"] = str(e)
+                    elif cmd == "getaddress":
+                        address = wallet.get_address()
+                        print(f"[RPC] getaddress called, returning: {address}")
+                        resp["result"] = address
                     
                     sock.sendall((json.dumps(resp)+"\n").encode())
-            except Exception:
+            except Exception as e:
+                print(f"[RPC] Error: {e}")
                 pass
     threading.Thread(target=handle, daemon=True).start()
 
